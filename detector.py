@@ -32,7 +32,7 @@ MIN_BOX_PX = 14      # 单个方块最小边长
 MAX_BOX_PX = 420     # 单个方块最大边长
 MIN_ROW_BOXES = 4    # 至少这么多个方块才认为是一行口令
 ROW_TOLERANCE = 0.75 # 同一行方块中心 y 的允许偏差（相对方块高度）
-MAX_WORK_WIDTH = 1600  # 检测前先把超宽截图缩到这个宽度，4K/Retina 也够快
+MAX_WORK_WIDTH = 1920  # 检测前先把超宽截图缩到这个宽度，4K/Retina 也够快
 PUNCT = "「」『』“”‘’\"'、,，。.:：;；!！?？()（）[]【】《》 \t\n"
 
 _engine: RapidOCR | None = None

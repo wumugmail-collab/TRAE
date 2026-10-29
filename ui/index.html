@@ -104,13 +104,13 @@
   @keyframes settle{0%,100%{transform:translate(-50%,50%)}50%{transform:translate(-50%,44%)}}
 
   /* 口令方块 */
-  .codes{display:flex;justify-content:center;gap:7px;margin:14px 0 6px;position:relative;padding:0 12px}
+  .codes{display:flex;justify-content:center;gap:var(--gap,7px);margin:14px 0 6px;position:relative;padding:0 12px}
   .bracket{position:absolute;top:-4px;bottom:-4px;width:12px}
   .bracket.l{left:0;border:2px solid var(--red);border-right:0;border-radius:3px 0 0 3px}
   .bracket.r{right:0;border:2px solid var(--red);border-left:0;border-radius:0 3px 3px 0}
   .cell{
-    flex:1 1 0;max-width:46px;aspect-ratio:1/1.12;border-radius:6px;
-    background:var(--red);color:#fff;font-size:22px;font-weight:700;
+    flex:1 1 0;min-width:0;max-width:46px;aspect-ratio:1/1.12;border-radius:6px;
+    background:var(--red);color:#fff;font-size:var(--fs,22px);font-weight:700;
     display:grid;place-items:center;line-height:1;
     box-shadow:inset 0 -3px 0 rgba(0,0,0,.10),0 2px 5px rgba(200,25,55,.20);
     font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
@@ -269,7 +269,10 @@
     const box = $("codes");
     box.classList.remove("unknown");
     [...box.querySelectorAll(".cell")].forEach((c) => c.remove());
-    const n = Math.max(chars.length, 8);
+    // 口令长度不固定：5~6 个、8 个、十几个都可能
+    const n = chars.length || 8;
+    box.style.setProperty("--gap", n >= 11 ? "5px" : n >= 9 ? "6px" : "7px");
+    box.style.setProperty("--fs", `${n >= 13 ? 12 : n >= 11 ? 14 : n >= 9 ? 16 : n >= 7 ? 19 : 24}px`);
     for (let i = 0; i < n; i++) {
       const d = document.createElement("div");
       d.className = "cell" + (chars[i] ? "" : " empty");
