@@ -31,7 +31,11 @@ import time
 
 import numpy as np
 from PIL import Image
-import pyperclip
+
+try:
+    import pyperclip
+except Exception:
+    pyperclip = None  # 没有剪贴板库时只打印/通知，不影响监测
 
 # 兼容两代 RapidOCR 包名：老包 rapidocr-onnxruntime / 新包 rapidocr
 try:
@@ -67,8 +71,9 @@ def notify(title, message):
         except Exception:
             pass
     try:
-        pyperclip.copy(message)
-        print("（口令已复制到剪贴板，可直接去支付宝粘贴）", flush=True)
+        if pyperclip is not None:
+            pyperclip.copy(message)
+            print("（口令已复制到剪贴板，可直接去支付宝粘贴）", flush=True)
     except Exception:
         pass
 
@@ -80,7 +85,10 @@ def notify(title, message):
 _MIN_LEN = 6
 _MAX_LEN = 20
 # 明显是引导语/标签的词，避免被当作口令
-_LABEL_WORDS = ("支付宝", "红包", "口令", "输入", "扫一扫", "领取", "点击", "复制", "回复")
+_LABEL_WORDS = ("支付宝", "红包", "口令", "输入", "扫一扫", "领取", "点击", "复制", "回复", "打开")
+# 明显不是口令的界面噪声（有效期、余额、时间等），避免兜底时误判
+_NOISE_WORDS = ("有效期", "有效", "失效", "剩余", "余额", "存入", "小时", "分钟", "秒钟",
+                "截止", "截至", "日期", "时间", "金额", "成功", "失败", "已领")
 # 候选片段：两端为中文/字母/数字，中间允许少量常见符号
 _CANDIDATE_RE = re.compile(
     r"[\u4e00-\u9fffA-Za-z0-9]"
@@ -94,11 +102,13 @@ def _clean(s):
 
 
 def _looks_like_kouling(s):
-    """校验是否符合口令特征：长度 6~20，且中英数占比 >= 70%。"""
+    """校验是否符合口令特征：长度 6~20，中英数占比 >= 70%，且不含界面噪声词。"""
     s = _clean(s)
     if not (_MIN_LEN <= len(s) <= _MAX_LEN):
         return False
     if any(w in s for w in _LABEL_WORDS):
+        return False
+    if any(w in s for w in _NOISE_WORDS):
         return False
     core = sum(
         1 for c in s
@@ -107,7 +117,14 @@ def _looks_like_kouling(s):
     return core / len(s) >= 0.7
 
 
-_MARK_RE = re.compile(r"口令(?:就是|叫做|是|为|叫|:|：|\s)*")
+# 口令前的提示词：口令 / 口令是 / 复制 / 请复制 ……
+_MARK_RE = re.compile(r"(?:请)?(?:红包)?(?:口令|复制)(?:就是|叫做|是|为|叫|请复制|:|：|\s)*")
+# 口令后常见的引导语，遇到就截断（OCR 常把空格吃掉，导致「复制7xK9mP2打开支付宝」连成一片）
+_MARK_TAIL_CUT_RE = re.compile(
+    r"\n|[\u3000，。！？、；,.;:：]"
+    r"|打开支付宝|打开|支付宝|领取|点击|输入|复制|口令|有效期|请尽快|赶快|立即|链接|红包"
+)
+_SEP_RE = re.compile(r"[ \t，。！？、；,.!?;:：\"“”'‘’（）()【】\[\]]")
 
 
 def extract_kouling(text):
@@ -115,12 +132,13 @@ def extract_kouling(text):
     if not text:
         return None
 
-    # 1) 优先：紧跟"口令"（或"口令是/口令："等）之后
+    # 1) 优先：紧跟在「口令 / 复制」等提示词之后，遇到引导语即截断
     for m in _MARK_RE.finditer(text):
-        tail = text[m.end():m.end() + 26]
-        c = _CANDIDATE_RE.search(tail)
-        if c and _looks_like_kouling(c.group(0)):
-            return _clean(c.group(0))
+        tail = text[m.end():m.end() + 30]
+        tail = _MARK_TAIL_CUT_RE.split(tail)[0]
+        tail = _SEP_RE.sub("", tail)
+        if tail and _looks_like_kouling(tail):
+            return tail
 
     # 2) 兜底：逐行找符合特征的短语（口令常独占一行/一个控件）
     for line in text.splitlines():
@@ -197,6 +215,7 @@ def monitor(region, interval, threshold):
             mon = sct.monitors[1]  # 主屏
 
         last = None
+        last_k = None  # 同一个口令只通知一次，避免画面抖动时反复弹窗
         print(f"开始监测区域 {mon}，间隔 {interval}s，Ctrl+C 退出。")
         while True:
             shot = sct.grab(mon)
@@ -209,8 +228,9 @@ def monitor(region, interval, threshold):
             # 画面变化，触发 OCR
             text = ocr_image(frame)
             k = extract_kouling(text)
-            if k:
+            if k and k != last_k:
                 notify("发现口令红包", k)
+                last_k = k
             last = frame
             time.sleep(interval)
 
