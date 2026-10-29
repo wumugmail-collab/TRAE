@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Web3 钱包连接 · 调试台</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #242a36;
+    --text: #e8ecf4;
+    --muted: #8b95a7;
+    --accent: #f0b90b;
+    --ok: #35d07f;
+    --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(1200px 600px at 20% -10%, #1a2030 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 40px 16px;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { width: min(760px, 100%); }
+  h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: .5px; }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 13px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 0 0 12px; letter-spacing: .6px; text-transform: uppercase; }
+  .status { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--err); box-shadow: 0 0 0 3px rgba(255,107,107,.15); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(53,208,127,.15); }
+  .status-text { font-size: 13px; color: var(--muted); }
+  .btn {
+    appearance: none; border: 0; border-radius: 10px; cursor: pointer;
+    padding: 11px 18px; font-size: 14px; font-weight: 600; font-family: inherit;
+    background: var(--accent); color: #171a1f; transition: filter .15s, transform .1s;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { transform: translateY(1px); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; font-size: 13px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .kv .v.muted { color: var(--muted); }
+  .logs {
+    height: 200px; overflow: auto; background: #0a0c11; border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px;
+    font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: #b9c2d0;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .logs .t { color: #5d6879; }
+  .logs .e { color: var(--err); }
+  .logs .s { color: var(--ok); }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 12px; }
+  .hint code { color: var(--accent); background: rgba(240,185,11,.08); padding: 1px 5px; border-radius: 4px; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(12px);
+    background: #1f2633; border: 1px solid var(--line); color: var(--text);
+    padding: 9px 16px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Web3 钱包连接 · 调试台</h1>
+  <div class="sub">支持 Binance Web3 Wallet / MetaMask / 其他 EIP-1193 注入式钱包。所有授权都在你的钱包里完成，本页不接触私钥。</div>
+
+  <div class="card">
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span class="status-text" id="statusText">未连接钱包</span>
+    </div>
+    <button class="btn" id="connectBtn">连接钱包</button>
+    <div class="row">
+      <button class="btn ghost" id="refreshBtn" disabled>刷新状态</button>
+      <button class="btn ghost" id="bscBtn" disabled>切到 BNB Chain</button>
+      <button class="btn ghost" id="ethBtn" disabled>切到 Ethereum</button>
+      <button class="btn ghost" id="clearBtn">清空日志</button>
+    </div>
+    <div class="hint">如果没有弹出授权窗口，请确认：① 该页面在浏览器中打开（不是聊天内预览）；② 已安装并解锁钱包插件；③ 若装了多个钱包，避免相互抢占 <code>window.ethereum</code>。</div>
+  </div>
+
+  <div class="card">
+    <h2>账户信息</h2>
+    <div class="kv">
+      <span class="k">地址</span><span class="v muted" id="addr">—</span>
+      <span class="k">Chain ID</span><span class="v muted" id="chainId">—</span>
+      <span class="k">网络</span><span class="v muted" id="network">—</span>
+      <span class="k">原生币余额</span><span class="v muted" id="balance">—</span>
+      <span class="k">Provider</span><span class="v muted" id="provider">—</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>调试日志</h2>
+    <div class="logs" id="logs"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CHAINS = {
+    "0x1":  { name: "Ethereum Mainnet", symbol: "ETH", rpc: "https://ethereum-rpc.publicnode.com",        explorer: "https://etherscan.io" },
+    "0x38": { name: "BNB Smart Chain",   symbol: "BNB", rpc: "https://bsc-rpc.publicnode.com",             explorer: "https://bscscan.com" },
+    "0x89": { name: "Polygon",           symbol: "POL", rpc: "https://polygon-bor-rpc.publicnode.com",      explorer: "https://polygonscan.com" },
+    "0xa4b1": { name: "Arbitrum One",    symbol: "ETH", rpc: "https://arbitrum-one-rpc.publicnode.com",    explorer: "https://arbiscan.io" },
+    "0xaa36a7": { name: "Sepolia",       symbol: "ETH", rpc: "https://ethereum-sepolia-rpc.publicnode.com", explorer: "https://sepolia.etherscan.io" }
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const logsEl = $("logs");
+
+  function log(msg, kind) {
+    const line = document.createElement("div");
+    if (kind) line.className = kind;
+    const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    line.innerHTML = '<span class="t">[' + time + ']</span> ' + escapeHtml(msg);
+    logsEl.appendChild(line);
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  let toastTimer = null;
+  function toast(text) {
+    const el = $("toast");
+    el.textContent = text;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function short(addr) {
+    return addr ? addr.slice(0, 6) + "…" + addr.slice(-4) : "—";
+  }
+
+  function getProvider() {
+    // Binance Web3 Wallet 扩展/内置浏览器注入的 provider 优先
+    if (window.binancew3w && window.binancew3w.ethereum) return window.binancew3w.ethereum;
+    if (window.ethereum) {
+      const list = window.ethereum.providers;
+      if (Array.isArray(list) && list.length) {
+        const binance = list.find((p) => p.isBinance || p.isBinanceW3W || p.isBinanceChain);
+        return binance || list[0];
+      }
+      return window.ethereum;
+    }
+    return null;
+  }
+
+  function providerName(p) {
+    if (!p) return "—";
+    if (p.isBinance || p.isBinanceW3W || p.isBinanceChain) return "Binance Web3 Wallet";
+    if (p.isMetaMask) return "MetaMask";
+    if (p.isCoinbaseWallet) return "Coinbase Wallet";
+    if (p.isTrust || p.isTrustWallet) return "Trust Wallet";
+    return p.isRabby ? "Rabby" : "EIP-1193 Provider";
+  }
+
+  async function rpc(method, params) {
+    const provider = getProvider();
+    if (!provider) throw new Error("未检测到钱包 provider，请安装/解锁插件钱包");
+    const t0 = performance.now();
+    const result = await provider.request({ method: method, params: params || [] });
+    log("→ " + method + " (" + Math.round(performance.now() - t0) + "ms)", "s");
+    return result;
+  }
+
+  function setConnected(on) {
+    $("dot").classList.toggle("on", on);
+    $("statusText").textContent = on ? "已连接：" + short(state.address) : "未连接钱包";
+    ["refreshBtn", "bscBtn", "ethBtn"].forEach((id) => { $(id).disabled = !on; });
+  }
+
+  const state = { address: null, chainId: null };
+
+  function setField(id, value) {
+    const el = $(id);
+    el.textContent = value;
+    el.classList.toggle("muted", value === "—");
+  }
+
+  async function refresh() {
+    const provider = getProvider();
+    setField("provider", providerName(provider));
+    if (!provider) return;
+
+    try {
+      const accounts = await rpc("eth_accounts");
+      state.address = accounts && accounts[0] ? accounts[0] : null;
+      const chainId = await rpc("eth_chainId");
+      state.chainId = chainId;
+
+      setField("addr", state.address || "—");
+      setField("chainId", chainId + " (" + parseInt(chainId, 16) + ")");
+      const chain = CHAINS[chainId];
+      setField("network", chain ? chain.name : "未知网络");
+      setConnected(Boolean(state.address));
+
+      if (state.address) {
+        const balHex = await rpc("eth_getBalance", [state.address, "latest"]);
+        setField("balance", formatUnits(balHex, 18) + " " + (chain ? chain.symbol : ""));
+      } else {
+        setField("balance", "—");
+      }
+    } catch (e) {
+      log("刷新失败：" + e.message, "e");
+    }
+  }
+
+  function formatUnits(hex, decimals) {
+    let v = BigInt(hex);
+    const base = BigInt(10) ** BigInt(decimals);
+    const whole = v / base;
+    const frac = (v % base).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+    const w = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return frac ? w + "." + frac : w;
+  }
+
+  async function connect() {
+    const provider = getProvider();
+    if (!provider) {
+      log("未检测到 window.ethereum / window.binancew3w.ethereum", "e");
+      toast("请先安装并解锁浏览器钱包插件");
+      return;
+    }
+    try {
+      log("请求授权 eth_requestAccounts …");
+      const accounts = await rpc("eth_requestAccounts");
+      log("授权成功，账户数：" + accounts.length, "s");
+      await refresh();
+      if (state.address) toast("已连接 " + short(state.address));
+    } catch (e) {
+      const code = e && e.code ? " [" + e.code + "]" : "";
+      log("连接被拒绝或失败：" + (e.message || e) + code, "e");
+      toast(e.code === 4001 ? "你拒绝了授权请求" : "连接失败，见日志");
+    }
+  }
+
+  async function switchChain(chainIdHex) {
+    const chain = CHAINS[chainIdHex];
+    if (!chain) return;
+    try {
+      await rpc("wallet_switchEthereumChain", [{ chainId: chainIdHex }]);
+    } catch (e) {
+      if (e.code === 4902) {
+        log("钱包未收录该网络，尝试 wallet_addEthereumChain …");
+        try {
+          await rpc("wallet_addEthereumChain", [{
+            chainId: chainIdHex,
+            chainName: chain.name,
+            nativeCurrency: { name: chain.symbol, symbol: chain.symbol, decimals: 18 },
+            rpcUrls: [chain.rpc],
+            blockExplorerUrls: [chain.explorer]
+          }]);
+        } catch (e2) {
+          log("添加网络失败：" + (e2.message || e2), "e");
+          return;
+        }
+      } else {
+        log("切换网络失败：" + (e.message || e), "e");
+        return;
+      }
+    }
+    await refresh();
+  }
+
+  function bindProvider() {
+    const provider = getProvider();
+    if (!provider || !provider.on) return;
+    provider.removeListener && provider.on("accountsChanged", (accounts) => {
+      log("event accountsChanged：" + (accounts.length ? accounts.map(short).join(", ") : "空（已断开）"));
+      state.address = accounts[0] || null;
+      refresh();
+    });
+    provider.on("chainChanged", (chainId) => {
+      log("event chainChanged：" + chainId + " (" + parseInt(chainId, 16) + ")");
+      refresh();
+    });
+    provider.on("disconnect", (err) => {
+      log("event disconnect：" + (err && err.message ? err.message : ""), "e");
+      refresh();
+    });
+    log("已注册钱包事件监听", "s");
+  }
+
+  $("connectBtn").addEventListener("click", connect);
+  $("refreshBtn").addEventListener("click", refresh);
+  $("bscBtn").addEventListener("click", () => switchChain("0x38"));
+  $("ethBtn").addEventListener("click", () => switchChain("0x1"));
+  $("clearBtn").addEventListener("click", () => { logsEl.innerHTML = ""; });
+  $("addr").addEventListener("click", () => {
+    if (!state.address) return;
+    navigator.clipboard.writeText(state.address).then(() => toast("地址已复制"), () => toast("复制失败"));
+  });
+
+  log("页面已加载，开始检测 injected provider …");
+  if (getProvider()) {
+    log("检测到 provider：" + providerName(getProvider()), "s");
+  } else {
+    log("未检测到 provider（尚未安装钱包插件，或页面不在浏览器中）", "e");
+  }
+  bindProvider();
+  refresh();
+})();
+</script>
+</body>
+</html>
