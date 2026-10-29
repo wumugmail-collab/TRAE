@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>口令红包监测</title>
+<style>
+  :root{
+    --red:#ea2140;
+    --red-deep:#d41733;
+    --blue:#1f6bff;
+    --gold:#e9c483;
+    --gold-edge:#b98c4b;
+    --ink:#3a2226;
+    --muted:#9a8b8f;
+    --page:#f7f2f4;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  input{user-select:text;-webkit-user-select:text}
+  body{
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    background:var(--page);color:var(--ink);
+    overflow:hidden;user-select:none;
+  }
+  .app{
+    height:100%;display:flex;flex-direction:column;
+    background:
+      radial-gradient(120% 60% at 50% -10%, #fff 0%, rgba(255,255,255,0) 60%),
+      var(--page);
+  }
+
+  /* ---------- 顶栏 ---------- */
+  .topbar{
+    display:flex;align-items:center;gap:8px;
+    padding:12px 16px 8px;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:#c9bfc1;flex:0 0 auto;
+       box-shadow:0 0 0 3px rgba(200,190,192,.25)}
+  .dot.on{background:#25c26e;box-shadow:0 0 0 3px rgba(37,194,110,.18)}
+  .dot.on{animation:pulse 1.8s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .title{font-size:13px;font-weight:600;letter-spacing:.5px}
+  .status{font-size:11px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+
+  /* ---------- 卡片区 ---------- */
+  .stage{flex:1;min-height:0;padding:0 16px 8px;display:flex;align-items:flex-start;
+         justify-content:center;overflow-y:auto}
+  .stage::-webkit-scrollbar{width:6px}
+  .stage::-webkit-scrollbar-thumb{background:#e6dcdf;border-radius:3px}
+  .paper{
+    position:relative;width:100%;max-width:380px;border-radius:18px;
+    background:#fff;
+    box-shadow:0 10px 30px rgba(120,60,80,.10),0 2px 6px rgba(120,60,80,.06);
+    padding:14px 14px 16px;
+    border:1px solid #f0e6e9;
+    overflow:hidden;
+  }
+  .corner{position:absolute;width:18px;height:18px;border:2px solid #f3d9dd;opacity:.9}
+  .corner.tl{top:6px;left:6px;border-right:0;border-bottom:0}
+  .corner.tr{top:6px;right:6px;border-left:0;border-bottom:0}
+  .corner.bl{bottom:6px;left:6px;border-right:0;border-top:0}
+  .corner.br{bottom:6px;right:6px;border-left:0;border-top:0}
+
+  .sender{display:flex;align-items:center;gap:10px;padding:2px 2px 12px}
+  .avatar{width:38px;height:38px;border-radius:50%;background:#eee7e9;display:grid;place-items:center;flex:0 0 auto}
+  .avatar svg{width:22px;height:22px;fill:#b6abae}
+  .sender .name{font-size:16px;font-weight:700;color:var(--red);letter-spacing:.2px}
+  .sender .msg{font-size:16px;font-weight:600;color:var(--red)}
+
+  /* 卡片主体 */
+  .card{position:relative;border-radius:14px;overflow:hidden;background:#f7c9d8;
+        aspect-ratio:3/4;box-shadow:0 6px 18px rgba(150,70,100,.14)}
+  .card img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+            object-position:50% 38%;transform:scale(1.06);filter:saturate(1.02)}
+  .card .veil{position:absolute;inset:0;background:
+       linear-gradient(180deg,rgba(255,214,226,.55) 0%,rgba(255,255,255,0) 38%,rgba(255,255,255,0) 62%,rgba(214,140,170,.12) 100%)}
+  .card .love{
+      position:absolute;top:6%;left:50%;transform:translateX(-50%) rotate(-3deg);
+      font-family:"Didot","Bodoni 72","Times New Roman",Georgia,serif;
+      font-style:italic;font-size:46px;letter-spacing:2px;color:#e0607f;
+      text-shadow:0 2px 10px rgba(255,255,255,.9),0 1px 0 rgba(255,255,255,.7);
+      opacity:.95
+  }
+  .card .verse{position:absolute;top:26%;right:8%;writing-mode:vertical-rl;
+      font-size:11px;letter-spacing:4px;color:#c16a83;opacity:.85;line-height:1.6}
+  .card .verse b{font-weight:600}
+  .card .hearts{position:absolute;top:24%;right:22%;font-size:11px;color:#d3839a;letter-spacing:1px}
+  .card .band{position:absolute;left:0;right:0;bottom:0;height:26%;
+      background:linear-gradient(180deg,#f4573f,#e63a2f);}
+  .open{
+      position:absolute;left:50%;bottom:15.5%;transform:translate(-50%,50%);
+      width:84px;height:84px;border-radius:50%;
+      background:radial-gradient(circle at 34% 28%,#fff3d8,#e8c489 62%,#d7ac6c);
+      border:3px solid var(--gold-edge);
+      display:grid;place-items:center;
+      font-family:"Songti SC","STSong","SimSun",serif;font-weight:700;
+      font-size:30px;color:#7a3f22;letter-spacing:2px;
+      box-shadow:0 8px 20px rgba(120,30,20,.28),inset 0 2px 6px rgba(255,255,255,.9);
+      cursor:pointer;transition:transform .18s ease;
+  }
+  .open:active{transform:translate(-50%,50%) scale(.96)}
+  .open.settle{animation:settle 1.4s ease-in-out infinite}
+  @keyframes settle{0%,100%{transform:translate(-50%,50%)}50%{transform:translate(-50%,44%)}}
+
+  /* 口令方块 */
+  .codes{display:flex;justify-content:center;gap:7px;margin:14px 0 6px;position:relative;padding:0 12px}
+  .bracket{position:absolute;top:-4px;bottom:-4px;width:12px}
+  .bracket.l{left:0;border:2px solid var(--red);border-right:0;border-radius:3px 0 0 3px}
+  .bracket.r{right:0;border:2px solid var(--red);border-left:0;border-radius:0 3px 3px 0}
+  .cell{
+    flex:1 1 0;max-width:46px;aspect-ratio:1/1.12;border-radius:6px;
+    background:var(--red);color:#fff;font-size:22px;font-weight:700;
+    display:grid;place-items:center;line-height:1;
+    box-shadow:inset 0 -3px 0 rgba(0,0,0,.10),0 2px 5px rgba(200,25,55,.20);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  .cell.empty{background:#efdfe2;color:#f6edef;box-shadow:none}
+  .codes.unknown .cell{background:#efdfe2;color:#fff;box-shadow:none}
+
+  .hint{display:flex;align-items:center;justify-content:center;gap:4px;
+        font-size:12px;color:var(--red);margin-top:6px;letter-spacing:.2px;text-align:center;flex-wrap:wrap}
+  .hint .hl{color:#ff6a3d}
+  .bluebar{display:flex;align-items:center;gap:8px;justify-content:center;
+        margin:10px auto 0;padding:8px 14px;border-radius:8px;
+        background:linear-gradient(180deg,#2b7bff,#1a63f2);border:2px solid #dfe8ff;
+        color:#fff;font-size:13px;font-weight:600;width:fit-content;
+        box-shadow:0 4px 10px rgba(30,100,255,.22)}
+  .bluebar .glass{width:16px;height:16px;border-radius:50%;border:2px solid #fff;position:relative}
+  .bluebar .glass:after{content:"";position:absolute;right:-4px;bottom:-4px;width:7px;height:2px;
+        background:#fff;transform:rotate(45deg);border-radius:2px}
+
+  /* 置信度 / 时间 */
+  .meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
+        margin:8px 4px 0;font-variant-numeric:tabular-nums}
+  .badge{color:#fff;background:#25c26e;border-radius:20px;padding:1px 8px;font-size:10px;display:none}
+  .badge.show{display:inline-block}
+
+  /* ---------- 底部操作 ---------- */
+  .actions{display:flex;gap:8px;padding:12px 16px 14px}
+  .btn{
+    flex:1;border:0;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600;
+    font-family:inherit;cursor:pointer;transition:transform .12s ease,filter .12s ease;
+    background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(120,60,80,.10)
+  }
+  .btn:active{transform:translateY(1px);filter:brightness(.97)}
+  .btn.primary{background:linear-gradient(180deg,#ff4a5f,#e51f3b);color:#fff;
+               box-shadow:0 6px 16px rgba(229,31,59,.32)}
+  .btn.ghost{background:transparent;box-shadow:none;color:var(--muted);flex:0 0 62px}
+
+  /* ---------- 设置抽屉 ---------- */
+  .sheet{position:absolute;inset:0;background:rgba(30,20,24,.32);display:none;align-items:flex-end;z-index:20}
+  .sheet.open{display:flex}
+  .panel{width:100%;background:#fff;border-radius:16px 16px 0 0;padding:16px 18px 18px;
+         box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+  .panel h3{margin:0 0 12px;font-size:14px}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:12.5px;border-bottom:1px solid #f3eef0}
+  .row:last-child{border-bottom:0}
+  .row input[type=number]{width:64px;padding:5px 7px;border:1px solid #e8dfe2;border-radius:7px;
+      font-size:12px;font-family:inherit;color:var(--ink)}
+  .row input[type=range]{width:110px;accent-color:var(--red)}
+  .switch{width:42px;height:24px;border-radius:14px;background:#e2d8db;position:relative;cursor:pointer;transition:background .2s}
+  .switch.on{background:#25c26e}
+  .switch i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;
+            box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left .2s}
+  .switch.on i{left:20px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;align-items:center}
+  .panel .close{width:100%;margin-top:14px;padding:10px;border-radius:10px;border:0;
+        background:#f3eef0;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+
+  /* 新增口令提示 */
+  .flash{position:absolute;left:50%;top:14px;transform:translateX(-50%);
+         background:rgba(229,31,59,.92);color:#fff;font-size:12px;padding:6px 14px;border-radius:20px;
+         opacity:0;transition:opacity .25s;pointer-events:none;z-index:10}
+  .flash.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="topbar">
+    <span class="dot" id="dot"></span>
+    <span class="title">口令红包监测</span>
+    <span class="status" id="statusText">正在启动…</span>
+  </div>
+
+  <div class="stage">
+    <div class="paper">
+      <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+      <div class="flash" id="flash">识别到新口令，已复制</div>
+
+      <div class="sender">
+        <div class="avatar">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2"/><path d="M3.6 21c.6-4.3 4-6.6 8.4-6.6s7.8 2.3 8.4 6.6z"/></svg>
+        </div>
+        <span class="name">what...</span>
+        <span class="msg">发来口令红包</span>
+      </div>
+
+      <div class="card">
+        <img src="assets/rose.jpg" alt="" />
+        <div class="veil"></div>
+        <div class="love">LOVE.</div>
+        <div class="hearts">♥ ♡</div>
+        <div class="verse"><b>以爱之名</b>　与你共度余生</div>
+        <div class="band"></div>
+        <button class="open" id="openBtn" title="复制口令">開</button>
+      </div>
+
+      <div class="codes" id="codes">
+        <span class="bracket l"></span>
+        <span class="bracket r"></span>
+      </div>
+
+      <div class="hint" id="hint">
+        上支付宝搜「口令红包」，输<span class="hl">👉</span>上方口令抢红包
+      </div>
+
+      <div class="bluebar"><span class="glass"></span>上支付宝搜　口令红包</div>
+
+      <div class="meta">
+        <span id="metaLeft">等待识别…</span>
+        <span class="badge" id="badge">新口令</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary" id="copyBtn">复制口令</button>
+    <button class="btn" id="scanBtn">立即识别</button>
+    <button class="btn" id="toggleBtn">暂停</button>
+    <button class="btn ghost" id="setBtn">设置</button>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <div class="panel">
+      <h3>监测设置</h3>
+      <div class="row"><span>自动复制到剪贴板</span><span class="switch on" id="swCopy"><i></i></span></div>
+      <div class="row"><span>识别提示音</span><span class="switch on" id="swSound"><i></i></span></div>
+      <div class="row"><span>窗口置顶</span><span class="switch" id="swTop"><i></i></span></div>
+      <div class="row"><span>扫描间隔 <em id="ivLabel">1.0</em>s</span>
+        <input type="range" id="interval" min="0.4" max="4" step="0.2" value="1" />
+      </div>
+      <div class="row"><span>只监测区域（留空=整个屏幕）</span></div>
+      <div class="row grid4">
+        <input type="number" id="rx" placeholder="x" /><input type="number" id="ry" placeholder="y" />
+        <input type="number" id="rw" placeholder="宽" /><input type="number" id="rh" placeholder="高" />
+      </div>
+      <div class="row"><span>显示器</span><input type="number" id="monitor" value="1" min="1" max="4" /></div>
+      <button class="close" id="closeSheet">完成</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const isNative = () => !!window.pywebview && !!window.pywebview.api;
+
+  const state = {
+    running: true,
+    code: "",
+    chars: [],
+    conf: 0,
+    at: "",
+    count: 0,
+    warning: "",
+  };
+
+  function renderCodes(chars) {
+    const box = $("codes");
+    box.classList.remove("unknown");
+    [...box.querySelectorAll(".cell")].forEach((c) => c.remove());
+    const n = Math.max(chars.length, 8);
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement("div");
+      d.className = "cell" + (chars[i] ? "" : " empty");
+      d.textContent = chars[i] || "";
+      box.appendChild(d);
+    }
+  }
+
+  function render() {
+    renderCodes(state.chars.length ? state.chars : Array(8).fill(""));
+    $("dot").classList.toggle("on", state.running);
+    $("toggleBtn").textContent = state.running ? "暂停" : "继续";
+    if (state.chars.length) {
+      $("metaLeft").textContent = `识别于 ${state.at} · 置信度 ${(state.conf * 100).toFixed(0)}%`;
+    } else if (state.warning) {
+      $("metaLeft").textContent = state.warning;
+    } else {
+      $("metaLeft").textContent = "等待识别…（把口令红包卡片放在屏幕可见位置）";
+    }
+    $("statusText").textContent = state.running
+      ? `监测中 · 已扫描 ${state.count} 次`
+      : `已暂停 · 扫描 ${state.count} 次`;
+    $("copyBtn").disabled = !state.code;
+    $("copyBtn").style.opacity = state.code ? 1 : .45;
+  }
+
+  let flashTimer = 0;
+  function flashBadge() {
+    $("flash").classList.add("show");
+    $("badge").classList.add("show");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      $("flash").classList.remove("show");
+      $("badge").classList.remove("show");
+    }, 2500);
+  }
+
+  async function copyCode(silent) {
+    if (!state.code) return;
+    if (isNative()) {
+      await window.pywebview.api.copy(state.code);
+    } else {
+      try { await navigator.clipboard.writeText(state.code); } catch (e) {}
+    }
+    $("copyBtn").textContent = "已复制 ✓";
+    setTimeout(() => ($("copyBtn").textContent = "复制口令"), 1200);
+  }
+
+  // ---------- 与后端同步 ----------
+  async function poll() {
+    if (!isNative()) return;
+    try {
+      const s = await window.pywebview.api.get_state();
+      const changed = s.code && s.code !== state.code;
+      state.running = s.running;
+      state.code = s.code;
+      state.chars = s.chars || [];
+      state.conf = s.confidence || 0;
+      state.at = s.at || "";
+      state.count = s.count || 0;
+      state.warning = s.warning || "";
+      render();
+      if (changed && s.code) {
+        flashBadge();
+        copyCode(true);
+      }
+    } catch (e) {}
+  }
+
+  setInterval(poll, 700);
+  window.addEventListener("pywebviewready", poll);
+
+  // ---------- 按钮 ----------
+  $("copyBtn").onclick = () => copyCode(false);
+  $("openBtn").onclick = () => copyCode(false);
+  $("scanBtn").onclick = async () => {
+    $("scanBtn").textContent = "识别中…";
+    if (isNative()) await window.pywebview.api.scan_now();
+    else {
+      state.code = "小吴厉害1243"; state.chars = [...state.code];
+      state.conf = .92; state.at = new Date().toLocaleTimeString("zh-CN", {hour12:false});
+      render();
+    }
+    setTimeout(() => ($("scanBtn").textContent = "立即识别"), 900);
+  };
+  $("toggleBtn").onclick = async () => {
+    state.running = !state.running;
+    render();
+    if (isNative()) await window.pywebview.api.set_running(state.running);
+  };
+
+  // ---------- 设置 ----------
+  const sheet = $("sheet");
+  $("setBtn").onclick = async () => {
+    if (isNative()) {
+      const c = await window.pywebview.api.get_config();
+      $("interval").value = c.interval; $("ivLabel").textContent = c.interval.toFixed(1);
+      $("swCopy").classList.toggle("on", c.auto_copy);
+      $("swSound").classList.toggle("on", c.sound);
+      $("swTop").classList.toggle("on", c.on_top);
+      $("monitor").value = c.monitor;
+      if (c.region) { $("rx").value=c.region[0]; $("ry").value=c.region[1]; $("rw").value=c.region[2]; $("rh").value=c.region[3]; }
+    }
+    sheet.classList.add("open");
+  };
+  $("closeSheet").onclick = async () => {
+    sheet.classList.remove("open");
+    if (!isNative()) return;
+    const nums = ["rx","ry","rw","rh"].map((k) => $(k).value.trim());
+    const region = nums.every((v) => v !== "") && nums.every((v) => !isNaN(+v))
+      ? nums.map(Number) : null;
+    await window.pywebview.api.save_config({
+      interval: parseFloat($("interval").value),
+      auto_copy: $("swCopy").classList.contains("on"),
+      sound: $("swSound").classList.contains("on"),
+      on_top: $("swTop").classList.contains("on"),
+      monitor: parseInt($("monitor").value) || 1,
+      region: region,
+    });
+  };
+  [["swCopy"],["swSound"],["swTop"]].forEach(([id]) =>
+    $(id).onclick = () => $(id).classList.toggle("on")
+  );
+  $("interval").oninput = () => ($("ivLabel").textContent = parseFloat($("interval").value).toFixed(1));
+  sheet.onclick = (e) => { if (e.target === sheet) $("closeSheet").click(); };
+
+  // 演示模式
+  render();
+  if (!isNative()) setTimeout(() => { state.count = 12; render(); }, 100);
+</script>
+</body>
+</html>

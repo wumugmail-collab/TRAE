@@ -1,0 +1,7 @@
+rapidocr>=2.0.0
+onnxruntime>=1.16.0
+opencv-python-headless>=4.8.0
+numpy>=1.24
+mss>=9.0
+pyperclip>=1.8
+pywebview>=5.0
