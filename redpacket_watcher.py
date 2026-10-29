@@ -33,9 +33,16 @@ import numpy as np
 from PIL import Image
 import pyperclip
 
+# 兼容两代 RapidOCR 包名：老包 rapidocr-onnxruntime / 新包 rapidocr
 try:
     from rapidocr_onnxruntime import RapidOCR
+except Exception:
+    try:
+        from rapidocr import RapidOCR
+    except Exception:
+        RapidOCR = None
 
+try:
     _OCR = RapidOCR()
     HAS_OCR = True
 except Exception as _e:  # 依赖未装或模型加载失败
@@ -66,40 +73,84 @@ def notify(title, message):
         pass
 
 
-# 支付宝口令常见形态：口令后面紧跟一串短语；或引导语里带引号。
-_PATTERNS = [
-    re.compile(r"口令[：:\s]*['\"]?([^\s，。！？、；,.!?;:]{2,24})"),
-    re.compile(r"口令[：:\s]*(.{2,24})"),
-    re.compile(r"(?:输入|回复|发送|说)[^\u4e00-\u9fff]*(['\"“]([\u4e00-\u9fffA-Za-z0-9]{2,16})['\"”])"),
-]
+# 支付宝口令红包口令特征（按实际观察）：
+#   - 长度 >5，常见 6～20，最长可达十几个字符
+#   - 主体是「中文 + 数字」，少量含英文字母
+#   - 极少带符号（符号占比低）
+_MIN_LEN = 6
+_MAX_LEN = 20
+# 明显是引导语/标签的词，避免被当作口令
+_LABEL_WORDS = ("支付宝", "红包", "口令", "输入", "扫一扫", "领取", "点击", "复制", "回复")
+# 候选片段：两端为中文/字母/数字，中间允许少量常见符号
+_CANDIDATE_RE = re.compile(
+    r"[\u4e00-\u9fffA-Za-z0-9]"
+    r"[\u4e00-\u9fffA-Za-z0-9\-·]{4,18}"
+    r"[\u4e00-\u9fffA-Za-z0-9]"
+)
+
+
+def _clean(s):
+    return s.strip(" \t\n\r，。！？、；,.!?;:：\"“”'‘’·~+-（）()【】[]<>/\\")
+
+
+def _looks_like_kouling(s):
+    """校验是否符合口令特征：长度 6~20，且中英数占比 >= 70%。"""
+    s = _clean(s)
+    if not (_MIN_LEN <= len(s) <= _MAX_LEN):
+        return False
+    if any(w in s for w in _LABEL_WORDS):
+        return False
+    core = sum(
+        1 for c in s
+        if ("\u4e00" <= c <= "\u9fff") or ("0" <= c <= "9") or ("a" <= c.lower() <= "z")
+    )
+    return core / len(s) >= 0.7
+
+
+_MARK_RE = re.compile(r"口令(?:就是|叫做|是|为|叫|:|：|\s)*")
 
 
 def extract_kouling(text):
     """从 OCR 文本里抠出口令短语。找不到时返回 None。"""
     if not text:
         return None
-    # 去掉空白便于正则
-    compact = re.sub(r"\s+", "", text)
-    for pat in _PATTERNS:
-        m = pat.search(compact)
-        if m:
-            val = m.group(2) if m.lastindex and m.lastindex >= 2 else m.group(1)
-            val = val.strip().strip("，。！？、；,.!?;:：\"“”'‘’ ")
-            if val and 2 <= len(val) <= 24:
-                return val
+
+    # 1) 优先：紧跟"口令"（或"口令是/口令："等）之后
+    for m in _MARK_RE.finditer(text):
+        tail = text[m.end():m.end() + 26]
+        c = _CANDIDATE_RE.search(tail)
+        if c and _looks_like_kouling(c.group(0)):
+            return _clean(c.group(0))
+
+    # 2) 兜底：逐行找符合特征的短语（口令常独占一行/一个控件）
+    for line in text.splitlines():
+        for c in _CANDIDATE_RE.findall(line):
+            if _looks_like_kouling(c):
+                return _clean(c)
+
     return None
 
 
 def ocr_image(img_bgr):
-    """对一张 BGR numpy 图做 OCR，返回拼接文本。"""
-    result, _ = _OCR(img_bgr)
+    """对一张图像做 OCR，返回拼接文本。兼容两代 RapidOCR 返回格式。"""
+    out = _OCR(img_bgr)
+    if isinstance(out, tuple):          # 老版：(result, elapse)
+        result = out[0]
+    else:                               # 新版：RapidOCROutput 或 None
+        result = out
+    if result is None:
+        return ""
+    # 新版对象带 txts 属性
+    if hasattr(result, "txts"):
+        return "\n".join(t for t in result.txts if t)
+    # 老版：list of [box, text, score]
     lines = []
-    if result:
-        for item in result:
-            # item: [4个角点, 文字, 置信度]
-            txt = item[1]
-            if txt:
-                lines.append(txt)
+    for item in result:
+        if not item:
+            continue
+        txt = item[1] if len(item) > 1 else str(item)
+        if txt:
+            lines.append(str(txt))
     return "\n".join(lines)
 
 
