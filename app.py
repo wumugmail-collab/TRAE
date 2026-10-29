@@ -16,9 +16,13 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
+
+import cv2
 
 import detector
 
@@ -215,11 +219,14 @@ class Api:
     def __init__(self, watcher: Watcher) -> None:
         self.watcher = watcher
         self.window = None
+        self.pick_window = None
+        self._pick: dict = {}
 
     # 供前端轮询
     def get_state(self) -> dict:
         s = self.watcher.snapshot()
         s["interval"] = self.watcher.cfg.get("interval", 1.0)
+        s["region"] = self.watcher.cfg.get("region")
         return s
 
     def get_config(self) -> dict:
@@ -255,6 +262,114 @@ class Api:
         self.watcher.stop()
         if self.window is not None:
             self.window.destroy()
+
+    # -------------------------------------------------- 框选监测区域
+    def get_pick_image(self) -> dict:
+        """给框选窗口拿全屏底图。"""
+        if not self._pick.get("uri"):
+            return {}
+        return {"uri": self._pick["uri"]}
+
+    def begin_region_select(self) -> dict:
+        """截一张当前屏幕，弹一个全屏无边框窗口让用户拖框。"""
+        if self.pick_window is not None:
+            return {"ok": False, "reason": "已经在框选中"}
+        try:
+            import webview
+        except ImportError:
+            return {"ok": False, "reason": "缺少 pywebview"}
+
+        mon = int(self.watcher.cfg.get("monitor") or 1)
+        shot = detector.capture(mon)
+        sw, sh = shot.shape[1], shot.shape[0]
+
+        fd, path = tempfile.mkstemp(prefix="hb_pick_", suffix=".png")
+        os.close(fd)
+        cv2.imwrite(path, shot)
+
+        screens = getattr(webview, "screens", None)
+        if callable(screens):
+            screens = screens()
+        scr = screens[min(mon - 1, len(screens) - 1)] if screens else None
+        x = int(getattr(scr, "x", 0))
+        y = int(getattr(scr, "y", 0))
+        w = int(getattr(scr, "width", sw))
+        h = int(getattr(scr, "height", sh))
+
+        self._pick = {
+            "path": path,
+            "uri": Path(path).as_uri(),
+            "shot_w": sw,
+            "shot_h": sh,
+            "prev_running": self.watcher.snapshot()["running"],
+        }
+        self.watcher.set_running(False)  # 框选时别把底图里的红包又抓一次
+
+        self.pick_window = webview.create_window(
+            "框选监测区域",
+            os.path.join(HERE, "ui", "select.html"),
+            js_api=self,
+            x=x, y=y, width=max(1, w), height=max(1, h),
+            frameless=True, on_top=True, resizable=False,
+            background_color="#000000",
+        )
+        # 用 Alt+F4 / 系统关闭按钮关掉框选窗时，也要恢复监测
+        self.pick_window.events.closed += lambda: self._on_pick_closed()
+        return {"ok": True}
+
+    def _on_pick_closed(self) -> None:
+        self._close_pick(resume=True)
+
+    def commit_region(self, data: dict) -> dict:
+        """把 CSS 像素坐标换算成屏幕像素，保存为监测区域。"""
+        p = self._pick
+        if not p:
+            return {"ok": False}
+        scale_x = p["shot_w"] / max(1.0, float(data.get("css_w") or 1))
+        scale_y = p["shot_h"] / max(1.0, float(data.get("css_h") or 1))
+
+        x = int(round(float(data.get("x", 0)) * scale_x))
+        y = int(round(float(data.get("y", 0)) * scale_y))
+        w = int(round(float(data.get("w", 0)) * scale_x))
+        h = int(round(float(data.get("h", 0)) * scale_y))
+
+        x = max(0, min(x, p["shot_w"] - 1))
+        y = max(0, min(y, p["shot_h"] - 1))
+        w = max(40, min(w, p["shot_w"] - x))
+        h = max(40, min(h, p["shot_h"] - y))
+
+        self.watcher.cfg["region"] = [x, y, w, h]
+        save_config(self.watcher.cfg)
+        self.watcher.reset_detection()
+        self._close_pick(resume=True)
+        return {"ok": True, "region": [x, y, w, h]}
+
+    def cancel_region(self) -> dict:
+        self._close_pick(resume=True)
+        return {"ok": True}
+
+    def clear_region(self) -> dict:
+        self.watcher.cfg["region"] = None
+        save_config(self.watcher.cfg)
+        self.watcher.reset_detection()
+        return {"ok": True}
+
+    def _close_pick(self, resume: bool) -> None:
+        if self.pick_window is not None:
+            try:
+                self.pick_window.destroy()
+            except Exception:
+                pass
+            self.pick_window = None
+        if resume and self._pick:
+            self.watcher.set_running(bool(self._pick.get("prev_running", True)))
+        path = self._pick.get("path")
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        self._pick = {}
 
 
 # ---------------------------------------------------------------- 入口

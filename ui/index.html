@@ -165,6 +165,13 @@
             box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left .2s}
   .switch.on i{left:20px}
   .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;align-items:center}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mini{border:0;border-radius:8px;padding:8px 0;font-size:12.5px;font-weight:600;
+        font-family:inherit;cursor:pointer;background:#f3eef0;color:var(--ink)}
+  .mini.red{background:linear-gradient(180deg,#ff4a5f,#e51f3b);color:#fff;
+            box-shadow:0 4px 12px rgba(229,31,59,.28)}
+  .mini:active{transform:translateY(1px)}
+  .row b{font-weight:600;color:var(--red);font-size:12px}
   .panel .close{width:100%;margin-top:14px;padding:10px;border-radius:10px;border:0;
         background:#f3eef0;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
 
@@ -244,6 +251,11 @@
       <div class="row grid4">
         <input type="number" id="rx" placeholder="x" /><input type="number" id="ry" placeholder="y" />
         <input type="number" id="rw" placeholder="宽" /><input type="number" id="rh" placeholder="高" />
+      </div>
+      <div class="row"><span>当前监测范围</span><b id="regionLabel">整个屏幕</b></div>
+      <div class="row grid2">
+        <button class="mini red" id="pickBtn">框选区域</button>
+        <button class="mini" id="clearBtn">清除区域</button>
       </div>
       <div class="row"><span>显示器</span><input type="number" id="monitor" value="1" min="1" max="4" /></div>
       <button class="close" id="closeSheet">完成</button>
@@ -334,6 +346,7 @@
       state.at = s.at || "";
       state.count = s.count || 0;
       state.warning = s.warning || "";
+      fillRegion(s.region);
       render();
       if (changed && s.code) {
         flashBadge();
@@ -374,7 +387,7 @@
       $("swSound").classList.toggle("on", c.sound);
       $("swTop").classList.toggle("on", c.on_top);
       $("monitor").value = c.monitor;
-      if (c.region) { $("rx").value=c.region[0]; $("ry").value=c.region[1]; $("rw").value=c.region[2]; $("rh").value=c.region[3]; }
+      fillRegion(c.region);
     }
     sheet.classList.add("open");
   };
@@ -396,6 +409,28 @@
   [["swCopy"],["swSound"],["swTop"]].forEach(([id]) =>
     $(id).onclick = () => $(id).classList.toggle("on")
   );
+
+  // ---------- 框选区域 ----------
+  let lastRegion = "";
+  function fillRegion(region) {
+    const key = JSON.stringify(region || null);
+    if (key === lastRegion) return;
+    lastRegion = key;
+    $("regionLabel").textContent = region ? `已框选 ${region[2]}×${region[3]}` : "整个屏幕";
+    ["rx","ry","rw","rh"].forEach((id, i) => {
+      $(id).value = region ? region[i] : "";
+    });
+  }
+  $("pickBtn").onclick = async () => {
+    if (!isNative()) { alert("需要在桌面 App 里使用框选"); return; }
+    sheet.classList.remove("open");
+    const r = await window.pywebview.api.begin_region_select();
+    if (!r || !r.ok) alert((r && r.reason) || "框选窗口打开失败");
+  };
+  $("clearBtn").onclick = async () => {
+    if (isNative()) await window.pywebview.api.clear_region();
+    fillRegion(null);
+  };
   $("interval").oninput = () => ($("ivLabel").textContent = parseFloat($("interval").value).toFixed(1));
   sheet.onclick = (e) => { if (e.target === sheet) $("closeSheet").click(); };
 

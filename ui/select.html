@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>框选监测区域</title>
+<style>
+  *{box-sizing:border-box;user-select:none}
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;
+            font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif}
+  #bg{position:fixed;inset:0;background-size:100% 100%;background-repeat:no-repeat;
+      filter:brightness(.92);cursor:crosshair}
+  #mask{position:fixed;inset:0;background:rgba(10,8,10,.42);display:none}
+  #sel{position:absolute;border:2px solid #ff3b5c;background:rgba(255,255,255,.06);
+       box-shadow:0 0 0 9999px rgba(10,8,10,.42);display:none;pointer-events:none}
+  #sel span{position:absolute;right:-2px;top:-24px;font-size:12px;color:#fff;
+            background:rgba(229,31,59,.92);padding:2px 6px;border-radius:4px;white-space:nowrap}
+  #tip{position:fixed;left:50%;top:22px;transform:translateX(-50%);
+       background:rgba(255,255,255,.95);color:#3a2226;font-size:13px;padding:8px 16px;
+       border-radius:20px;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+  #bar{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+       display:flex;gap:10px;align-items:center}
+  #bar button{border:0;padding:9px 18px;border-radius:9px;font-size:13px;font-weight:600;
+              font-family:inherit;cursor:pointer}
+  #ok{background:#e51f3b;color:#fff;box-shadow:0 6px 16px rgba(229,31,59,.4)}
+  #ok:disabled{opacity:.45;box-shadow:none;cursor:default}
+  #cancel{background:rgba(255,255,255,.92);color:#3a2226}
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="sel"><span id="size"></span></div>
+  <div id="tip">按住鼠标拖出你要监测的区域（松手后可微调，Esc 取消）</div>
+  <div id="bar">
+    <button id="cancel">取消</button>
+    <button id="ok" disabled>只监测这块区域</button>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let ready = false, dragging = false, has = false;
+  let sx = 0, sy = 0, rect = { x: 0, y: 0, w: 0, h: 0 };
+
+  window.__initPick = (uri) => {
+    $("bg").style.backgroundImage = `url("${uri}")`;
+    ready = true;
+  };
+  window.__initPickFromApi = async () => {
+    try {
+      const info = await window.pywebview.api.get_pick_image();
+      if (info && info.uri) window.__initPick(info.uri);
+    } catch (e) {}
+  };
+  window.addEventListener("pywebviewready", window.__initPickFromApi);
+
+  const update = () => {
+    const el = $("sel");
+    el.style.display = has ? "block" : "none";
+    if (!has) return;
+    el.style.left = rect.x + "px";
+    el.style.top = rect.y + "px";
+    el.style.width = rect.w + "px";
+    el.style.height = rect.h + "px";
+    $("size").textContent = `${Math.round(rect.w)} × ${Math.round(rect.h)}`;
+    $("ok").disabled = rect.w < 40 || rect.h < 40;
+  };
+
+  const clampX = (v) => Math.max(0, Math.min(window.innerWidth, v));
+  const clampY = (v) => Math.max(0, Math.min(window.innerHeight, v));
+
+  $("bg").addEventListener("mousedown", (e) => {
+    if (!ready) return;
+    dragging = true; has = false; sx = clampX(e.clientX); sy = clampY(e.clientY);
+    rect = { x: sx, y: sy, w: 0, h: 0 }; update();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const cx = clampX(e.clientX), cy = clampY(e.clientY);
+    rect = {
+      x: Math.min(sx, cx), y: Math.min(sy, cy),
+      w: Math.abs(cx - sx), h: Math.abs(cy - sy),
+    };
+    has = rect.w > 2 && rect.h > 2;
+    update();
+  });
+  window.addEventListener("mouseup", () => {
+    dragging = false;
+    if (has) update();
+  });
+
+  async function commit() {
+    if (!has) return;
+    try {
+      await window.pywebview.api.commit_region({
+        x: rect.x, y: rect.y, w: rect.w, h: rect.h,
+        css_w: window.innerWidth, css_h: window.innerHeight,
+      });
+    } catch (e) {}
+  }
+  $("ok").onclick = commit;
+  $("cancel").onclick = async () => {
+    try { await window.pywebview.api.cancel_region(); } catch (e) {}
+  };
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") $("cancel").onclick();
+    if (e.key === "Enter" && has) commit();
+  });
+</script>
+</body>
+</html>

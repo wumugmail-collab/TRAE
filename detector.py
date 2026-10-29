@@ -95,6 +95,19 @@ def _red_mask(img: np.ndarray) -> np.ndarray:
     return m
 
 
+def _has_white_text(img: np.ndarray, box: tuple[int, int, int, int]) -> bool:
+    """口令方块 = 深红底 + 明显更亮的白字；浅色底（卡片背景、粉色文字）直接排除。"""
+    x, y, w, h = box
+    crop = cv2.cvtColor(img[y:y + h, x:x + w], cv2.COLOR_BGR2GRAY)
+    if crop.size == 0:
+        return False
+    med = float(np.median(crop))
+    if med > 150:                        # 底色太亮，不是深红方块
+        return False
+    bright = float((crop > max(med + 70, 170)).mean())
+    return bright > 0.04
+
+
 def find_boxes(img: np.ndarray) -> list[tuple[int, int, int, int]]:
     """找出所有像「红底白字方块」的候选矩形。"""
     h, w = img.shape[:2]
@@ -108,9 +121,9 @@ def find_boxes(img: np.ndarray) -> list[tuple[int, int, int, int]]:
             continue
         if area < 0.6 * bw * bh:            # 不够实心（空心框、装饰角标）
             continue
-        if bw * bh > 0.04 * w * h:          # 太大，多半是卡片本身的红底
+        if not 0.5 <= bw / bh <= 1.9:       # 形状不像单个字符方块
             continue
-        if not 0.5 <= bw / bh <= 2.0:       # 形状不像单个字符方块
+        if not _has_white_text(img, (x, y, bw, bh)):
             continue
         boxes.append((int(x), int(y), int(bw), int(bh)))
     return boxes
@@ -145,14 +158,16 @@ def _split_merged_band(img: np.ndarray) -> list[list[tuple[int, int, int, int]]]
         x, y, bw, bh = cv2.boundingRect(c)
         if cv2.contourArea(c) < 0.6 * bw * bh or bh < MIN_BOX_PX:
             continue
-        if bw * bh > 0.04 * w * h or not 2.0 < bw / bh <= 20:
+        if not 1.9 < bw / bh <= 20:
             continue
         cell = bh if bh >= MIN_BOX_PX else bw
         n = max(1, round(bw / cell))
         if n < MIN_ROW_BOXES:
             continue
         step = bw / n
-        rows.append([(int(x + i * step), int(y), int(step), int(bh)) for i in range(n)])
+        cells = [(int(x + i * step), int(y), int(step), int(bh)) for i in range(n)]
+        if sum(_has_white_text(img, c) for c in cells) >= max(3, int(0.7 * n)):
+            rows.append(cells)
     return rows
 
 
